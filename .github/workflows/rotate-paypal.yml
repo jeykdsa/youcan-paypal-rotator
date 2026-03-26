@@ -3,6 +3,9 @@ name: Rotate PayPal Email
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   rotate:
     runs-on: ubuntu-latest
