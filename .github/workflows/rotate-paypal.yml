@@ -1,0 +1,28 @@
+name: Rotate PayPal Email
+
+on:
+  workflow_dispatch:
+    inputs:
+      email:
+        description: 'New PayPal email'
+        required: true
+
+jobs:
+  rotate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install puppeteer
+
+      - name: Run PayPal rotation
+        env:
+          YOUCAN_EMAIL: ${{ secrets.YOUCAN_EMAIL }}
+          YOUCAN_PASSWORD: ${{ secrets.YOUCAN_PASSWORD }}
+          PAYPAL_EMAIL: ${{ github.event.inputs.email }}
+        run: node rotate.js
