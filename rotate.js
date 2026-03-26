@@ -76,15 +76,66 @@ if (!YOUCAN_EMAIL || !YOUCAN_PASSWORD || !PAYPAL_EMAIL) {
     // Step 3b: If on switch-store page, select the correct store
     if (page.url().includes('switch-store')) {
       console.log('Step 3b: Selecting store "seoboost"...');
-      const storeLink = await page.evaluateHandle(() => {
-        const links = Array.from(document.querySelectorAll('a, button, div, span'));
-        return links.find(el => el.textContent.trim().toLowerCase().includes('seoboost'));
+
+      // Click the store element
+      const clicked = await page.evaluate(() => {
+        const elements = Array.from(document.querySelectorAll('a, button, div, span, li, td, tr'));
+        const el = elements.find(e => e.textContent.trim().toLowerCase().includes('seoboost') && e.closest('a, button, [role="button"], [onclick]'));
+        if (el) {
+          const clickable = el.closest('a, button, [role="button"], [onclick]') || el;
+          clickable.click();
+          return clickable.tagName + ': ' + clickable.textContent.trim().substring(0, 50);
+        }
+        // Try just clicking any element with seoboost
+        const fallback = elements.find(e => e.textContent.trim() === 'seoboost');
+        if (fallback) {
+          fallback.click();
+          return 'fallback: ' + fallback.tagName;
+        }
+        return null;
       });
-      if (storeLink) {
-        await storeLink.click();
-        await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 });
+
+      console.log('Clicked: ' + clicked);
+
+      if (clicked) {
+        // Wait for URL to change or just wait a bit
+        try {
+          await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 });
+        } catch (e) {
+          // Navigation might not happen, that's ok
+          console.log('No navigation after click, waiting...');
+          await new Promise(r => setTimeout(r, 3000));
+        }
         console.log('After store selection URL: ' + page.url());
+
+        // If still on switch-store, try direct navigation
+        if (page.url().includes('switch-store')) {
+          console.log('Still on switch-store, trying direct URL...');
+          // List all links on the page to find the correct one
+          const links = await page.evaluate(() => {
+            return Array.from(document.querySelectorAll('a')).map(a => ({
+              href: a.href,
+              text: a.textContent.trim().substring(0, 50)
+            })).filter(l => l.text.toLowerCase().includes('seoboost') || l.href.includes('switch') || l.href.includes('store'));
+          });
+          console.log('Store links found: ' + JSON.stringify(links));
+
+          // Click the first matching link
+          if (links.length > 0 && links[0].href) {
+            await page.goto(links[0].href, { waitUntil: 'networkidle2', timeout: 30000 });
+            console.log('After direct link URL: ' + page.url());
+          }
+        }
       } else {
+        // Log all clickable elements for debugging
+        const allElements = await page.evaluate(() => {
+          return Array.from(document.querySelectorAll('a, button')).map(e => ({
+            tag: e.tagName,
+            href: e.href || '',
+            text: e.textContent.trim().substring(0, 50)
+          })).slice(0, 20);
+        });
+        console.log('Available elements: ' + JSON.stringify(allElements));
         console.error('Could not find "seoboost" store link');
         process.exit(1);
       }
