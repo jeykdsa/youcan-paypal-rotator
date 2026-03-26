@@ -73,6 +73,23 @@ if (!YOUCAN_EMAIL || !YOUCAN_PASSWORD || !PAYPAL_EMAIL) {
     }
     console.log('Step 3 final URL: ' + page.url());
 
+    // Step 3b: If on switch-store page, select the correct store
+    if (page.url().includes('switch-store')) {
+      console.log('Step 3b: Selecting store "seoboost"...');
+      const storeLink = await page.evaluateHandle(() => {
+        const links = Array.from(document.querySelectorAll('a, button, div, span'));
+        return links.find(el => el.textContent.trim().toLowerCase().includes('seoboost'));
+      });
+      if (storeLink) {
+        await storeLink.click();
+        await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 });
+        console.log('After store selection URL: ' + page.url());
+      } else {
+        console.error('Could not find "seoboost" store link');
+        process.exit(1);
+      }
+    }
+
     // Step 4: Go to payment settings
     console.log('Step 4: Navigating to payment settings...');
     await page.goto('https://seller-area.youcan.shop/admin/settings/payment', {
@@ -126,7 +143,11 @@ if (!YOUCAN_EMAIL || !YOUCAN_PASSWORD || !PAYPAL_EMAIL) {
     console.log('Response body: ' + (result.body || result.error));
     console.log('Page URL when request was made: ' + result.url);
 
-    if (result.status === 200) {
+    // Check both HTTP status and response body
+    const bodyParsed = result.body ? JSON.parse(result.body) : null;
+    const realSuccess = result.status === 200 && (!bodyParsed || !bodyParsed.status || bodyParsed.status === 200 || bodyParsed.status === true);
+
+    if (realSuccess) {
       console.log('SUCCESS: PayPal email changed to ' + PAYPAL_EMAIL);
     } else {
       console.error('FAILED: status=' + result.status + ', body=' + (result.body || result.error));
