@@ -11,6 +11,7 @@ if (!YOUCAN_EMAIL || !YOUCAN_PASSWORD || !PAYPAL_EMAIL) {
 
 (async () => {
   console.log('Starting PayPal email rotation to: ' + PAYPAL_EMAIL);
+  console.log('YouCan account: ' + YOUCAN_EMAIL);
 
   const browser = await puppeteer.launch({
     headless: 'new',
@@ -25,8 +26,9 @@ if (!YOUCAN_EMAIL || !YOUCAN_PASSWORD || !PAYPAL_EMAIL) {
     console.log('Step 1: Navigating to login...');
     await page.goto('https://seller-area.youcan.shop/admin/login', {
       waitUntil: 'networkidle2',
-      timeout: 30000,
+      timeout: 60000,
     });
+    console.log('Step 1 URL: ' + page.url());
 
     // Step 2: Fill login form on accounts.youcan.shop
     console.log('Step 2: Filling login form...');
@@ -51,21 +53,25 @@ if (!YOUCAN_EMAIL || !YOUCAN_PASSWORD || !PAYPAL_EMAIL) {
       page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }),
       page.click('button[type="submit"], input[type="submit"], button:not([type])'),
     ]);
+    console.log('After login URL: ' + page.url());
 
     // Step 3: Wait for SSO redirect to seller-area
     console.log('Step 3: Waiting for SSO redirect...');
     let attempts = 0;
     while (!page.url().includes('seller-area.youcan.shop/admin') && attempts < 15) {
       await new Promise(r => setTimeout(r, 2000));
+      console.log('  Waiting... URL: ' + page.url());
       attempts++;
     }
 
     if (!page.url().includes('seller-area.youcan.shop')) {
+      console.log('Manually navigating to seller-area...');
       await page.goto('https://seller-area.youcan.shop/admin', {
         waitUntil: 'networkidle2',
         timeout: 30000,
       });
     }
+    console.log('Step 3 final URL: ' + page.url());
 
     // Step 4: Go to payment settings
     console.log('Step 4: Navigating to payment settings...');
@@ -73,6 +79,15 @@ if (!YOUCAN_EMAIL || !YOUCAN_PASSWORD || !PAYPAL_EMAIL) {
       waitUntil: 'networkidle2',
       timeout: 30000,
     });
+    console.log('Step 4 URL: ' + page.url());
+
+    // Check if we're actually on the payment settings page
+    const pageTitle = await page.title();
+    console.log('Page title: ' + pageTitle);
+
+    // Take a screenshot for debugging
+    const pageContent = await page.evaluate(() => document.body.innerText.substring(0, 500));
+    console.log('Page content preview: ' + pageContent);
 
     // Step 5: Update PayPal email via fetch inside the page
     console.log('Step 5: Updating PayPal email...');
@@ -87,27 +102,34 @@ if (!YOUCAN_EMAIL || !YOUCAN_PASSWORD || !PAYPAL_EMAIL) {
         }
       }
 
-      if (!xsrf) return { status: 0, error: 'XSRF token not found' };
+      if (!xsrf) return { status: 0, error: 'XSRF token not found in cookies: ' + document.cookie.substring(0, 200) };
 
-      const resp = await fetch('/admin/settings/payment/paypal', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json;charset=UTF-8',
-          'X-XSRF-TOKEN': xsrf,
-          'X-Requested-With': 'XMLHttpRequest',
-          'Accept': '*/*',
-        },
-        body: JSON.stringify({ email: newEmail }),
-      });
-      return { status: resp.status, body: await resp.text() };
+      try {
+        const resp = await fetch('/admin/settings/payment/paypal', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json;charset=UTF-8',
+            'X-XSRF-TOKEN': xsrf,
+            'X-Requested-With': 'XMLHttpRequest',
+            'Accept': '*/*',
+          },
+          body: JSON.stringify({ email: newEmail }),
+        });
+        const body = await resp.text();
+        return { status: resp.status, body: body.substring(0, 500), url: window.location.href };
+      } catch (e) {
+        return { status: 0, error: e.message, url: window.location.href };
+      }
     }, PAYPAL_EMAIL);
 
     console.log('Result: status=' + result.status);
+    console.log('Response body: ' + (result.body || result.error));
+    console.log('Page URL when request was made: ' + result.url);
 
     if (result.status === 200) {
       console.log('SUCCESS: PayPal email changed to ' + PAYPAL_EMAIL);
     } else {
-      console.error('FAILED: ' + (result.body || result.error));
+      console.error('FAILED: status=' + result.status + ', body=' + (result.body || result.error));
       process.exit(1);
     }
   } catch (error) {
