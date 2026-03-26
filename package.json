@@ -1,0 +1,13 @@
+{
+  "name": "youcan-paypal-rotator",
+  "version": "1.0.0",
+  "description": "Rotates PayPal email on YouCan store via headless browser",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "puppeteer": "^22.0.0"
+  }
+}
