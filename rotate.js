@@ -75,69 +75,92 @@ if (!YOUCAN_EMAIL || !YOUCAN_PASSWORD || !PAYPAL_EMAIL) {
 
     // Step 3b: If on switch-store page, select the correct store
     if (page.url().includes('switch-store')) {
-      console.log('Step 3b: Selecting store "seoboost"...');
+      console.log('Step 3b: On switch-store page, waiting for content to render...');
 
-      // Click the store element
-      const clicked = await page.evaluate(() => {
-        const elements = Array.from(document.querySelectorAll('a, button, div, span, li, td, tr'));
-        const el = elements.find(e => e.textContent.trim().toLowerCase().includes('seoboost') && e.closest('a, button, [role="button"], [onclick]'));
-        if (el) {
-          const clickable = el.closest('a, button, [role="button"], [onclick]') || el;
-          clickable.click();
-          return clickable.tagName + ': ' + clickable.textContent.trim().substring(0, 50);
+      // Wait for the page JS to render the store list
+      let found = false;
+      for (let i = 0; i < 15; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        const text = await page.evaluate(() => document.body.innerText);
+        console.log('  Attempt ' + (i+1) + ': page has ' + text.length + ' chars');
+        if (text.toLowerCase().includes('seoboost')) {
+          found = true;
+          break;
         }
-        // Try just clicking any element with seoboost
-        const fallback = elements.find(e => e.textContent.trim() === 'seoboost');
-        if (fallback) {
-          fallback.click();
-          return 'fallback: ' + fallback.tagName;
+      }
+
+      if (!found) {
+        const html = await page.evaluate(() => document.body.innerHTML.substring(0, 1000));
+        console.log('Page HTML: ' + html);
+        console.error('Store "seoboost" not found on page after waiting');
+        process.exit(1);
+      }
+
+      // Now find and click the store
+      console.log('Found seoboost on page, clicking...');
+      const clickResult = await page.evaluate(() => {
+        // Find all elements containing "seoboost"
+        const all = Array.from(document.querySelectorAll('*'));
+        const matches = all.filter(el => {
+          const text = el.childNodes.length > 0
+            ? Array.from(el.childNodes).filter(n => n.nodeType === 3).map(n => n.textContent.trim()).join('')
+            : '';
+          return text.toLowerCase() === 'seoboost' || el.textContent.trim().toLowerCase() === 'seoboost';
+        });
+
+        // Log what we found
+        const info = matches.map(el => ({
+          tag: el.tagName,
+          class: el.className.toString().substring(0, 50),
+          parent: el.parentElement ? el.parentElement.tagName : 'none',
+        }));
+
+        // Click the most specific match (smallest element)
+        if (matches.length > 0) {
+          // Sort by text length to get most specific
+          matches.sort((a, b) => a.textContent.length - b.textContent.length);
+          const target = matches[0];
+          // Try clicking the element or its parent/ancestor that looks clickable
+          let clickTarget = target;
+          let parent = target;
+          for (let i = 0; i < 5; i++) {
+            parent = parent.parentElement;
+            if (!parent) break;
+            if (parent.tagName === 'A' || parent.tagName === 'BUTTON' || parent.onclick || parent.getAttribute('role') === 'button') {
+              clickTarget = parent;
+              break;
+            }
+          }
+          clickTarget.click();
+          return { clicked: clickTarget.tagName + '.' + clickTarget.className.toString().substring(0, 30), info };
         }
-        return null;
+        return { clicked: null, info };
       });
 
-      console.log('Clicked: ' + clicked);
+      console.log('Click result: ' + JSON.stringify(clickResult));
 
-      if (clicked) {
-        // Wait for URL to change or just wait a bit
-        try {
-          await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 });
-        } catch (e) {
-          // Navigation might not happen, that's ok
-          console.log('No navigation after click, waiting...');
-          await new Promise(r => setTimeout(r, 3000));
-        }
-        console.log('After store selection URL: ' + page.url());
+      // Wait for navigation or URL change
+      try {
+        await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 });
+      } catch (e) {
+        await new Promise(r => setTimeout(r, 3000));
+      }
+      console.log('After store selection URL: ' + page.url());
 
-        // If still on switch-store, try direct navigation
-        if (page.url().includes('switch-store')) {
-          console.log('Still on switch-store, trying direct URL...');
-          // List all links on the page to find the correct one
-          const links = await page.evaluate(() => {
-            return Array.from(document.querySelectorAll('a')).map(a => ({
-              href: a.href,
-              text: a.textContent.trim().substring(0, 50)
-            })).filter(l => l.text.toLowerCase().includes('seoboost') || l.href.includes('switch') || l.href.includes('store'));
-          });
-          console.log('Store links found: ' + JSON.stringify(links));
-
-          // Click the first matching link
-          if (links.length > 0 && links[0].href) {
-            await page.goto(links[0].href, { waitUntil: 'networkidle2', timeout: 30000 });
-            console.log('After direct link URL: ' + page.url());
-          }
-        }
-      } else {
-        // Log all clickable elements for debugging
-        const allElements = await page.evaluate(() => {
-          return Array.from(document.querySelectorAll('a, button')).map(e => ({
-            tag: e.tagName,
-            href: e.href || '',
-            text: e.textContent.trim().substring(0, 50)
-          })).slice(0, 20);
+      // If still on switch-store, try the store URL directly
+      if (page.url().includes('switch-store')) {
+        console.log('Still on switch-store, looking for store links...');
+        const links = await page.evaluate(() => {
+          return Array.from(document.querySelectorAll('a[href]')).map(a => ({
+            href: a.href,
+            text: a.textContent.trim().substring(0, 60)
+          })).filter(l => l.href.includes('store') || l.href.includes('switch') || l.text.toLowerCase().includes('seoboost'));
         });
-        console.log('Available elements: ' + JSON.stringify(allElements));
-        console.error('Could not find "seoboost" store link');
-        process.exit(1);
+        console.log('Links: ' + JSON.stringify(links));
+        if (links.length > 0) {
+          await page.goto(links[0].href, { waitUntil: 'networkidle2', timeout: 30000 });
+          console.log('After link click URL: ' + page.url());
+        }
       }
     }
 
